@@ -41,8 +41,8 @@ ENV TELEGRAM_SESSION_NAME="telegram_mcp_session"
 # Or provide the session string directly
 ENV TELEGRAM_SESSION_STRING=""
 
-# Expose any ports if the application were a web server (not needed for stdio MCP)
-# EXPOSE 8000
+# Dokploy runs this fork as a remote Streamable HTTP MCP server.
+EXPOSE 8000
 
-# Define the command to run the application
-CMD ["python", "main.py"]
+# Define the command to run the HTTP MCP application.
+CMD ["python", "-m", "telegram_mcp.runner_http"]
