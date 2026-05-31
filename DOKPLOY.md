@@ -20,6 +20,7 @@ MCP_AUTH_TOKEN=<long random bearer token>
 PORT=8000
 HOST=0.0.0.0
 MCP_PATH=/mcp
+MCP_ALLOWED_HOSTS=telegram-mcp.dokploy.windbit.dev,127.0.0.1,localhost
 ```
 
 `TELEGRAM_EXPOSED_TOOLS=read-only` is strongly recommended for the first rollout. Switch to `all` only after confirming the MCP client and access controls behave as expected.

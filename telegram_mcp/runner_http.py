@@ -19,6 +19,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
+from mcp.server.transport_security import TransportSecuritySettings
 
 from telegram_mcp import runtime as _runtime
 from telegram_mcp.install_guard import UnsafeInstallationError, assert_safe_distribution
@@ -70,6 +71,18 @@ def _configure_http_settings() -> None:
         "yes",
         "on",
     }
+    allowed_hosts = [
+        host.strip()
+        for host in os.getenv(
+            "MCP_ALLOWED_HOSTS",
+            "127.0.0.1,localhost,telegram-mcp.dokploy.windbit.dev",
+        ).split(",")
+        if host.strip()
+    ]
+    settings.transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+    )
 
 
 def _build_app():
