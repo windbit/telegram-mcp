@@ -30,6 +30,7 @@ Message sent successfully:
 - [Quick Start](#quick-start)
 - [MCP Client Configuration](#mcp-client-configuration)
 - [Multi-Account Setup](#multi-account-setup)
+- [Device Identity](#device-identity)
 - [Proxy Support](#proxy-support)
 - [File Path Security](#file-path-security)
 - [Docker](#docker)
@@ -222,6 +223,24 @@ Example prompts:
 - "Show unread messages from all accounts"
 - "Send this from my work account to @example"
 
+## Device Identity
+
+These optional variables control how the client appears in Telegram under
+**Settings > Devices** (the active-sessions list):
+
+```env
+TELEGRAM_DEVICE_MODEL=Telegram MCP
+TELEGRAM_SYSTEM_VERSION=1.0
+TELEGRAM_APP_VERSION=1.0
+```
+
+If left unset, Telethon falls back to the host platform (for example `arm64`).
+Because these values are re-sent on every connection, a long-running server
+would otherwise overwrite the name chosen during login on each reconnect, so
+set them to keep a stable, recognisable device name. The same variables are
+read both by the session string generator (at login) and by the server (on
+every connect), so set them in the same place as your other credentials.
+
 ## Proxy Support
 
 Route Telegram traffic through a proxy by setting the `TELEGRAM_PROXY_*`
@@ -286,7 +305,11 @@ Allowed roots can come from:
 Security behavior:
 
 - Client MCP Roots replace server CLI roots when available.
-- Empty client Roots are treated as deny-all.
+- Empty client Roots are treated as deny-all by default. Some clients implement
+  the Roots capability but advertise an empty list, which disables file tools
+  even when server CLI roots are configured. Set
+  `TELEGRAM_ALLOW_SERVER_ROOTS_FALLBACK=1` to fall back to the server CLI roots
+  in that case (opt-in; the default stays deny-all).
 - Paths are resolved through real paths and must stay inside an allowed root.
 - Traversal, wildcard-like, shell-like, and null-byte path patterns are rejected.
 - Relative paths resolve under the first allowed root.

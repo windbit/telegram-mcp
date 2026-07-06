@@ -35,13 +35,37 @@ async def _main() -> None:
         )
 
         # Warm entity caches — StringSession has no persistent cache,
-        # so fetch all dialogs once per client to populate them
-        print("Warming entity caches...", file=sys.stderr)
-        await asyncio.gather(*(cl.get_dialogs() for cl in clients.values()))
+        # so fetch all dialogs once per client to populate them.
+        # Runs in background: blocking startup on this (e.g. under a
+        # GetDialogsRequest flood wait) makes MCP clients time out, and
+        # resolve_entity() re-warms the cache on miss anyway.
+        print("Warming entity caches (background)...", file=sys.stderr)
 
-        print(f"Telegram client(s) started ({labels}). Running MCP server...", file=sys.stderr)
-        # Use the asynchronous entrypoint instead of mcp.run()
-        await mcp.run_stdio_async()
+        async def _warm_caches() -> None:
+            try:
+                await asyncio.gather(*(cl.get_dialogs() for cl in clients.values()))
+                print("Entity caches warmed.", file=sys.stderr)
+            except Exception as warm_exc:
+                print(f"Entity cache warm failed: {warm_exc}", file=sys.stderr)
+
+        warm_task = asyncio.create_task(_warm_caches())
+
+        transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
+        print(
+            f"Telegram client(s) started ({labels}). Running MCP server ({transport})...",
+            file=sys.stderr,
+        )
+        # SSE transport: one long-lived process holds a single shared Telegram
+        # connection, while multiple local MCP clients (Claude Code via mcp-remote,
+        # Claude Desktop) connect over HTTP. This avoids spawning one Telethon
+        # session per client, which Telegram throttles/flags.
+        if transport == "sse":
+            mcp.settings.host = os.getenv("MCP_HOST", "127.0.0.1")
+            mcp.settings.port = int(os.getenv("MCP_PORT", "8765"))
+            await mcp.run_sse_async()
+        else:
+            # Use the asynchronous entrypoint instead of mcp.run()
+            await mcp.run_stdio_async()
     except Exception as e:
         print(f"Error starting client: {e}", file=sys.stderr)
         if isinstance(e, sqlite3.OperationalError) and "database is locked" in str(e):

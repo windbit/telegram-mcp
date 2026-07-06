@@ -253,15 +253,18 @@ async def get_participants(
         if not participants:
             return format_tool_result([])
 
-        records = [
-            {
+        records = []
+        for p in participants:
+            rec = {
                 "id": p.id,
                 "name": sanitize_name(
                     f"{getattr(p, 'first_name', '')} {getattr(p, 'last_name', '')}".strip()
                 ),
             }
-            for p in participants
-        ]
+            uname = getattr(p, "username", None)
+            if uname:
+                rec["username"] = sanitize_name(uname)
+            records.append(rec)
         result = format_tool_result(records)
 
         # Append pagination metadata; has_more indicates whether a next page likely exists
@@ -487,6 +490,7 @@ async def promote_admin(
                 "add_admins": False,
                 "anonymous": False,
                 "manage_call": True,
+                "manage_topics": True,
                 "other": True,
             }
 
@@ -501,6 +505,7 @@ async def promote_admin(
             add_admins=rights.get("add_admins", False),
             anonymous=rights.get("anonymous", False),
             manage_call=rights.get("manage_call", True),
+            manage_topics=rights.get("manage_topics", True),
             other=rights.get("other", True),
         )
 
@@ -560,6 +565,7 @@ async def demote_admin(
             add_admins=False,
             anonymous=False,
             manage_call=False,
+            manage_topics=False,
             other=False,
         )
 
@@ -839,6 +845,7 @@ async def edit_admin_rights(
     add_admins: bool = False,
     anonymous: bool = False,
     manage_call: bool = False,
+    manage_topics: bool = False,
     other: bool = False,
     account: str = None,
 ) -> str:
@@ -863,6 +870,7 @@ async def edit_admin_rights(
         add_admins: can add new admins with their own rights
         anonymous: admin actions appear anonymous
         manage_call: can manage voice/video chats
+        manage_topics: can create, edit, close and reopen forum topics (forum-enabled supergroups only)
         other: reserved for future rights
     """
     try:
@@ -881,6 +889,7 @@ async def edit_admin_rights(
             add_admins=add_admins,
             anonymous=anonymous,
             manage_call=manage_call,
+            manage_topics=manage_topics,
             other=other,
         )
         await cl(
@@ -914,15 +923,18 @@ async def get_admins(chat_id: Union[int, str], account: str = None) -> str:
         await ensure_connected(cl)
         # Fix: Use the correct filter type ChannelParticipantsAdmins
         participants = await cl.get_participants(chat_id, filter=ChannelParticipantsAdmins())
-        records = [
-            {
+        records = []
+        for p in participants:
+            rec = {
                 "id": p.id,
                 "name": sanitize_name(
                     f"{getattr(p, 'first_name', '')} {getattr(p, 'last_name', '')}".strip()
                 ),
             }
-            for p in participants
-        ]
+            uname = getattr(p, "username", None)
+            if uname:
+                rec["username"] = sanitize_name(uname)
+            records.append(rec)
         return format_tool_result(records) if records else "No admins found."
     except Exception as e:
         logger.exception(f"get_admins failed (chat_id={chat_id})")
@@ -945,15 +957,18 @@ async def get_banned_users(chat_id: Union[int, str], account: str = None) -> str
         await ensure_connected(cl)
         # Fix: Use the correct filter type ChannelParticipantsKicked
         participants = await cl.get_participants(chat_id, filter=ChannelParticipantsKicked(q=""))
-        records = [
-            {
+        records = []
+        for p in participants:
+            rec = {
                 "id": p.id,
                 "name": sanitize_name(
                     f"{getattr(p, 'first_name', '')} {getattr(p, 'last_name', '')}".strip()
                 ),
             }
-            for p in participants
-        ]
+            uname = getattr(p, "username", None)
+            if uname:
+                rec["username"] = sanitize_name(uname)
+            records.append(rec)
         return format_tool_result(records) if records else "No banned users found."
     except Exception as e:
         logger.exception(f"get_banned_users failed (chat_id={chat_id})")

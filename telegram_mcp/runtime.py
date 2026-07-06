@@ -45,6 +45,7 @@ import re
 from functools import wraps
 import telethon.errors.rpcerrorlist
 from sanitize import sanitize_user_content, sanitize_name, sanitize_dict, format_tool_result
+from telegram_mcp.client_identity import client_identity_kwargs
 
 
 class ValidationError(Exception):
@@ -275,6 +276,7 @@ def _build_client(session: Any, label: str) -> TelegramClient:
         kwargs["proxy"] = proxy
     if connection is not None:
         kwargs["connection"] = connection
+    kwargs.update(client_identity_kwargs())
     return TelegramClient(session, TELEGRAM_API_ID, TELEGRAM_API_HASH, **kwargs)
 
 
@@ -504,6 +506,7 @@ ROOTS_STATUS_READY = "ready"
 ROOTS_STATUS_NOT_CONFIGURED = "not_configured"
 ROOTS_STATUS_UNSUPPORTED_FALLBACK = "unsupported_fallback"
 ROOTS_STATUS_CLIENT_DENY_ALL = "client_deny_all"
+ROOTS_STATUS_SERVER_FALLBACK = "server_fallback"
 ROOTS_STATUS_ERROR = "error"
 
 
@@ -828,6 +831,30 @@ def get_sender_name(message) -> str:
         return "Unknown"
 
 
+def get_sender_username(message) -> Optional[str]:
+    """Public @username of the message sender, if any (sanitized)."""
+    sender = getattr(message, "sender", None)
+    username = getattr(sender, "username", None) if sender else None
+    return sanitize_name(username) if username else None
+
+
+def get_sender_info(message) -> str:
+    """Sender display string: name (@username) [id=NNN].
+
+    Always exposes a numeric id (sender or from_id) so a user can be reached via
+    tg://user?id=<id> even when no public @username exists.
+    """
+    name = get_sender_name(message)
+    username = get_sender_username(message)
+    sid = getattr(message, "sender_id", None)
+    suffix = ""
+    if username:
+        suffix += f" (@{username})"
+    if sid:
+        suffix += f" [id={sid}]"
+    return f"{name}{suffix}"
+
+
 def get_engagement_info(message) -> str:
     """Helper function to get engagement metrics (views, forwards, reactions) from a message."""
     engagement_parts = []
@@ -957,6 +984,16 @@ def _is_roots_unsupported_error(error: Exception) -> bool:
     return False
 
 
+def _server_roots_fallback_enabled(value: Optional[str] = None) -> bool:
+    """Whether an empty client roots list should fall back to server CLI roots.
+
+    Opt-in via the ``TELEGRAM_ALLOW_SERVER_ROOTS_FALLBACK`` environment variable.
+    Defaults to ``False`` to preserve the safe deny-all behavior.
+    """
+    raw_value = os.getenv("TELEGRAM_ALLOW_SERVER_ROOTS_FALLBACK") if value is None else value
+    return _parse_bool_env(raw_value, False)
+
+
 async def _get_effective_allowed_roots_with_status(
     ctx: Optional[Context],
 ) -> tuple[List[Path], str]:
@@ -989,7 +1026,13 @@ async def _get_effective_allowed_roots_with_status(
     if client_roots:
         return _dedupe_paths(client_roots), ROOTS_STATUS_READY
 
-    # Roots API succeeded; an empty roots list is treated as explicit deny-all.
+    # Roots API succeeded but returned an empty list. By default this is an
+    # explicit deny-all. Some clients (e.g. ones that implement the Roots
+    # capability but expose no roots) advertise an empty list even though the
+    # operator configured server-side CLI roots; for those, an opt-in lets the
+    # server-side roots take effect instead of disabling file tools entirely.
+    if fallback_roots and _server_roots_fallback_enabled():
+        return fallback_roots, ROOTS_STATUS_SERVER_FALLBACK
     return [], ROOTS_STATUS_CLIENT_DENY_ALL
 
 
