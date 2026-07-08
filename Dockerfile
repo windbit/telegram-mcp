@@ -42,6 +42,8 @@ ENV TELEGRAM_SESSION_NAME="telegram_mcp_session"
 # Or provide the session string directly
 ENV TELEGRAM_SESSION_STRING=""
 ENV TELEGRAM_ALLOW_SERVER_ROOTS_FALLBACK="true"
+# Public base URL of this container; makes download_media return a /files link
+ENV TELEGRAM_HTTP_PUBLIC_URL=""
 
 # Dokploy runs this fork as a remote Streamable HTTP MCP server.
 EXPOSE 8000

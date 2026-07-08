@@ -164,6 +164,18 @@ async def download_media(
         if not _path_is_within_any_root(final_path, roots):
             return "Download failed: resulting path is outside allowed roots."
 
+        # For remote HTTP deployments the file lives on the server's disk, so hand
+        # back a URL the client can GET (behind the same MCP_AUTH_TOKEN) instead of
+        # a path it can't reach. See the /files route in runner_http.
+        base_url = os.getenv("TELEGRAM_HTTP_PUBLIC_URL", "").rstrip("/")
+        if base_url:
+            for root in roots:
+                try:
+                    rel = final_path.relative_to(root)
+                except ValueError:
+                    continue
+                return f"Media downloaded. Retrieve it at {base_url}/files/{rel.as_posix()}"
+
         return f"Media downloaded to {final_path}."
     except Exception as e:
         return log_and_format_error(
