@@ -17,7 +17,7 @@ import nest_asyncio
 import uvicorn
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
 from starlette.routing import Route
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -85,6 +85,25 @@ def _configure_http_settings() -> None:
     )
 
 
+async def _serve_file(request):
+    """Serve a previously downloaded file from an allowed root (behind bearer auth).
+
+    Files are resolved relative to the first server root; the resolved path must
+    stay within an allowed root, so `..` traversal is rejected.
+    """
+    roots = _runtime.SERVER_ALLOWED_ROOTS
+    if not roots:
+        return PlainTextResponse("file serving disabled: no allowed roots", status_code=404)
+    candidate = roots[0] / request.path_params["file_path"]
+    try:
+        candidate = candidate.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return PlainTextResponse("not found", status_code=404)
+    if not _runtime._path_is_within_any_root(candidate, roots) or not candidate.is_file():
+        return PlainTextResponse("not found", status_code=404)
+    return FileResponse(candidate)
+
+
 def _build_app():
     app = _runtime.mcp.streamable_http_app()
 
@@ -104,6 +123,7 @@ def _build_app():
 
     app.routes.append(Route("/healthz", healthz, methods=["GET"]))
     app.routes.append(Route("/", root, methods=["GET"]))
+    app.routes.append(Route("/files/{file_path:path}", _serve_file, methods=["GET"]))
 
     token = os.getenv("MCP_AUTH_TOKEN")
     if token:

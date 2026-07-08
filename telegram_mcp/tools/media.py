@@ -130,6 +130,11 @@ async def download_media(
         message_id: The message ID containing the media.
         file_path: Optional absolute or relative path under allowed roots.
             If omitted, saves into `<first_root>/downloads/`.
+    Returns:
+        A confirmation string. On remote HTTP deployments it contains an
+        `https://.../files/...` URL — fetch it with an `Authorization: Bearer
+        <MCP_AUTH_TOKEN>` header to retrieve the file, since it lives on the
+        server's disk, not the client's.
     """
     try:
         cl = get_client(account)
@@ -163,6 +168,18 @@ async def download_media(
             return roots_error
         if not _path_is_within_any_root(final_path, roots):
             return "Download failed: resulting path is outside allowed roots."
+
+        # For remote HTTP deployments the file lives on the server's disk, so hand
+        # back a URL the client can GET (behind the same MCP_AUTH_TOKEN) instead of
+        # a path it can't reach. See the /files route in runner_http.
+        base_url = os.getenv("TELEGRAM_HTTP_PUBLIC_URL", "").rstrip("/")
+        if base_url:
+            for root in roots:
+                try:
+                    rel = final_path.relative_to(root)
+                except ValueError:
+                    continue
+                return f"Media downloaded. Retrieve it at {base_url}/files/{rel.as_posix()}"
 
         return f"Media downloaded to {final_path}."
     except Exception as e:
