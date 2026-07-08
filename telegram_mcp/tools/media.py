@@ -130,6 +130,11 @@ async def download_media(
         message_id: The message ID containing the media.
         file_path: Optional absolute or relative path under allowed roots.
             If omitted, saves into `<first_root>/downloads/`.
+    Returns:
+        A confirmation string. On remote HTTP deployments it contains an
+        `https://.../files/...` URL — fetch it with an `Authorization: Bearer
+        <MCP_AUTH_TOKEN>` header to retrieve the file, since it lives on the
+        server's disk, not the client's.
     """
     try:
         cl = get_client(account)
