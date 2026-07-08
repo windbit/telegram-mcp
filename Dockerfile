@@ -27,8 +27,9 @@ COPY main.py sanitize.py ./
 COPY telegram_mcp ./telegram_mcp
 # COPY session_string_generator.py . # Optional: if needed within the container, otherwise can be run outside
 
-# Create a non-root user and switch to it
-RUN adduser --disabled-password --gecos "" appuser && chown -R appuser:appuser /app
+RUN adduser --disabled-password --gecos "" appuser \
+    && mkdir -p /data \
+    && chown -R appuser:appuser /app /data
 USER appuser
 
 # Define environment variables needed by the application
@@ -40,9 +41,10 @@ ENV TELEGRAM_API_HASH=""
 ENV TELEGRAM_SESSION_NAME="telegram_mcp_session"
 # Or provide the session string directly
 ENV TELEGRAM_SESSION_STRING=""
+ENV TELEGRAM_ALLOW_SERVER_ROOTS_FALLBACK="true"
 
 # Dokploy runs this fork as a remote Streamable HTTP MCP server.
 EXPOSE 8000
 
-# Define the command to run the HTTP MCP application.
-CMD ["python", "-m", "telegram_mcp.runner_http"]
+# /data = allowed root for file tools; mount a volume there to persist downloads
+CMD ["python", "-m", "telegram_mcp.runner_http", "/data"]
