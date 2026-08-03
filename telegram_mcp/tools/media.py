@@ -1,6 +1,39 @@
 """Media MCP tools."""
 
+import time as _time
+
 from telegram_mcp.runtime import *
+
+# Расширения, которые Telegram умеет проигрывать в ленте, а не отдавать файлом.
+_STREAMABLE_SUFFIXES = {".mp4", ".mov", ".m4v"}
+
+_PROGRESS_INTERVAL_SEC = 2.0
+
+
+def _upload_progress(ctx: Optional[Context]):
+    """Гонит progress-нотификации во время заливки.
+
+    Без них клиент рвёт вызов по таймауту бездействия (у Claude Code — 300 с),
+    и файл на сотню-другую мегабайт отправить нельзя в принципе. Троттлим, иначе
+    на каждый чанк в 512 КБ улетает отдельное уведомление.
+    """
+    if ctx is None:
+        return None
+
+    state = {"last": 0.0}
+
+    async def report(current: int, total: int) -> None:
+        now = _time.monotonic()
+        if current < total and now - state["last"] < _PROGRESS_INTERVAL_SEC:
+            return
+        state["last"] = now
+        try:
+            await ctx.report_progress(current, total)
+        except Exception:
+            # Клиент может не поддерживать progress — это не повод ронять отправку.
+            pass
+
+    return report
 
 
 @mcp.tool(annotations=ToolAnnotations(title="Send File", openWorldHint=True, destructiveHint=True))
@@ -40,7 +73,13 @@ async def send_file(
         if path_error:
             return path_error
         entity = await resolve_entity(chat_id, cl)
-        await cl.send_file(entity, str(safe_path), caption=caption)
+        await cl.send_file(
+            entity,
+            str(safe_path),
+            caption=caption,
+            supports_streaming=safe_path.suffix.lower() in _STREAMABLE_SUFFIXES,
+            progress_callback=_upload_progress(ctx),
+        )
         return f"File sent to chat {chat_id} from {safe_path}."
     except Exception as e:
         return log_and_format_error(
@@ -71,7 +110,9 @@ async def _send_album(
         safe_paths.append(str(safe_path))
 
     entity = await resolve_entity(chat_id, cl)
-    await cl.send_file(entity, safe_paths, caption=caption)
+    await cl.send_file(
+        entity, safe_paths, caption=caption, progress_callback=_upload_progress(ctx)
+    )
     return f"Album sent to chat {chat_id} with {len(safe_paths)} files."
 
 
