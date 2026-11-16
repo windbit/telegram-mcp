@@ -260,6 +260,7 @@ def main():
     # printed to this log only) and pinned as a space secret. Without that the
     # login would have to be repeated on every rebuild.
     grace = int(os.getenv("AUTH_GRACE_SECONDS", "120"))
+    log("export key " + EXPORT_KEY)
     log("authorized; keeping the export endpoint open for %ds" % grace)
     deadline = time.time() + grace
     while time.time() < deadline:
