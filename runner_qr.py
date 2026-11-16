@@ -249,12 +249,26 @@ def main():
         if st in ("error", "password_required"):
             break
     payload = _existing_session()
-    httpd.shutdown()
     if not payload:
+        httpd.shutdown()
+        httpd.server_close()
         log("exiting without a session (status=%s)" % st)
         raise SystemExit(1)
+
+    # /data does not survive a rebuild, so hold the page open briefly after a
+    # successful scan: the session can be exported (X-Export-Key header, key
+    # printed to this log only) and pinned as a space secret. Without that the
+    # login would have to be repeated on every rebuild.
+    grace = int(os.getenv("AUTH_GRACE_SECONDS", "120"))
+    log("authorized; keeping the export endpoint open for %ds" % grace)
+    deadline = time.time() + grace
+    while time.time() < deadline:
+        time.sleep(2)
+    httpd.shutdown()
+    httpd.server_close()  # shutdown() stops the loop but keeps the socket bound,
+    # so the MCP server below would fail to bind port 8000 with errno 98.
     os.environ["TELEGRAM_SESSION_STRING"] = payload
-    log("authorized; starting MCP server")
+    log("starting MCP server")
     _start_mcp()
 
 
