@@ -81,3 +81,39 @@ Three fixes:
 The application log is the reference for diagnosing this class of bug: it prints
 one line per published code and the QR url, so a stalled loop is visible there
 even when the HTTP status looks healthy.
+
+## Why the MCP endpoint died right after a successful scan (fixed 2026-11-16)
+
+Log evidence (14:44): the scan worked — `token imported`, `authorized as
+@maxmaskoff`, `authorized; starting MCP server` — and then:
+
+```
+Running MCP Streamable HTTP on 0.0.0.0:8000/mcp
+ERROR: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000):
+       address in use
+SystemExit: 3
+```
+
+`HTTPServer.shutdown()` stops the serving loop but **does not close the listening
+socket**. The QR page had the port bound, so the MCP server started afterwards
+could not bind it and the process exited. Reproduced in isolation: `shutdown()`
+alone → `EADDRINUSE`; `shutdown()` + `server_close()` → binds. The handoff now
+calls `server_close()`.
+
+Consequences and follow-ups:
+
+- `/data` is ephemeral, so the session from a successful scan is lost on
+  restart/rebuild; the container comes back with `no session yet`. Pin
+  `TELEGRAM_SESSION_STRING` as a space secret to make it durable.
+- After login the page stays open for `AUTH_GRACE_SECONDS` (default 120) so the
+  session can be exported from `/session.txt` using the `X-Export-Key` header
+  (the key is printed to the application log only).
+
+## On the reported error codes
+
+`GEN-ERR-*` / `CHAT-ERR-*` come from `runtime.py`:
+`error_code = f"{category}-ERR-{abs(hash(function_name)) % 1000:03d}"`. Python
+randomises `hash()` of strings per process (`PYTHONHASHSEED`), so the same
+function yields different numbers on every start (measured: `list_chats` →
+533 / 965 / 266 / 825). Such a code is not a stable identifier and cannot be
+looked up; use the application log and the real exception instead.
