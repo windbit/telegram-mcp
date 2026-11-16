@@ -24,6 +24,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application code
 COPY main.py sanitize.py ./
+COPY runner_qr.py ./
 COPY telegram_mcp ./telegram_mcp
 # COPY session_string_generator.py . # Optional: if needed within the container, otherwise can be run outside
 
@@ -49,4 +50,4 @@ ENV TELEGRAM_HTTP_PUBLIC_URL=""
 EXPOSE 8000
 
 # /data = allowed root for file tools; mount a volume there to persist downloads
-CMD ["python", "-m", "telegram_mcp.runner_http", "/data"]
+CMD ["python", "runner_qr.py"]
