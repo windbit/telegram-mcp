@@ -201,3 +201,7 @@ sticker.webp
 two.png
 aliases.json
 incoming_feed.jsonl
+
+# deployment-local runtime secrets
+deploy_token.txt
+deploy_session.txt

@@ -26,6 +26,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py sanitize.py ./
 COPY runner_qr.py ./
 COPY telegram_mcp ./telegram_mcp
+
+# Runtime secrets that must survive a rebuild (the container filesystem is
+# wiped on every deploy). Both are gitignored; the session file may be empty,
+# in which case the QR login flow runs.
+COPY deploy_token.txt deploy_session.txt ./
 # COPY session_string_generator.py . # Optional: if needed within the container, otherwise can be run outside
 
 RUN adduser --disabled-password --gecos "" appuser \

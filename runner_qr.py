@@ -194,12 +194,26 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, "text/plain", b"not found")
 
 
+SESSION_BAKED = os.getenv("TELEGRAM_SESSION_BAKED_FILE", "/app/deploy_session.txt")
+
+
 def _existing_session():
+    """Resolve the Telegram session, preferring durable sources over /data.
+
+    /data lives in the container filesystem and is discarded on every rebuild,
+    so a session stored there alone would force a fresh QR scan each time. The
+    baked file travels with the build context and keeps the login stable.
+    """
     if os.getenv("TELEGRAM_SESSION_STRING"):
         return os.getenv("TELEGRAM_SESSION_STRING")
-    if os.path.exists(SESSION_FILE):
-        with open(SESSION_FILE) as fh:
-            return fh.read().strip()
+    for path in (SESSION_BAKED, SESSION_FILE):
+        try:
+            with open(path) as fh:
+                value = fh.read().strip()
+        except OSError:
+            continue
+        if value:
+            return value
     return ""
 
 
@@ -221,12 +235,30 @@ def _describe_mounts():
             log("probe: %s not writable (%s)" % (cand, exc))
 
 
+TOKEN_FILE = os.getenv("MCP_TOKEN_FILE", "/app/deploy_token.txt")
+
+
 def _ensure_mcp_token():
+    """Provide a bearer token for /mcp.
+
+    Order: an explicit env value, then the token baked into the build context
+    (so the MCP client's configured token keeps matching across rebuilds),
+    then a freshly generated one. The value is never logged.
+    """
     if os.getenv("MCP_AUTH_TOKEN"):
+        log("using MCP_AUTH_TOKEN from the environment")
+        return
+    try:
+        baked = open(TOKEN_FILE).read().strip()
+    except OSError:
+        baked = ""
+    if baked:
+        os.environ["MCP_AUTH_TOKEN"] = baked
+        log("using bearer token from " + TOKEN_FILE)
         return
     value = secrets.token_urlsafe(32)
     os.environ["MCP_AUTH_TOKEN"] = value
-    log("mcp auth token " + value)
+    log("generated a bearer token (set MCP_TOKEN_FILE to keep it stable)")
 
 
 def main():
