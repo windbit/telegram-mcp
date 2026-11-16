@@ -41,3 +41,21 @@ host or FastMCP's DNS-rebinding protection rejects requests.
 `/healthz` (expect `{"ok":true,"service":"telegram-mcp",...}`) and the
 application log — a `ValueError: invalid literal for int() with base 10: ''`
 there means `TELEGRAM_API_ID` is still missing.
+
+## QR login
+
+The service runs `runner_qr.py`, not the upstream entrypoint:
+
+1. On start it looks for a session (env `TELEGRAM_SESSION_STRING`, else
+   `TELEGRAM_SESSION_FILE`, default `/data/session.txt`).
+2. Without one it serves `GET /` — a page whose QR image refreshes every ~3 s.
+   Telethon QR tokens live ~30 s, so a static image cannot be delivered in time.
+   `GET /qr.png` is the current code, `GET /status.json` is the state.
+3. After the scan the session is written to `TELEGRAM_SESSION_FILE` (0600) and
+   the normal Streamable HTTP MCP server starts on the same port.
+
+Scan path: Telegram → Settings → Devices → Link Desktop Device.
+
+`/data` is the container filesystem: the session does not survive a rebuild, so
+after logging in copy the session into a space secret and pass it as
+`TELEGRAM_SESSION_STRING` to make it durable.
