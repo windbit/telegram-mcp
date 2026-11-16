@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import os
+import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -12,6 +13,7 @@ APP_ID_VARS = ("BOT_" + "TELEGRAM" + "_API" + "_ID", "TELEGRAM" + "_API" + "_ID"
 APP_HASH_VARS = ("BOT_" + "TELEGRAM" + "_API" + "_HASH", "TELEGRAM" + "_API" + "_HASH")
 MAX_REFRESHES = 200
 
+EXPORT_KEY = secrets.token_urlsafe(24)
 STATE = {"status": "starting", "attempt": 0, "qr": b"", "error": "",
          "account": "", "session": ""}
 LOCK = threading.Lock()
@@ -126,8 +128,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/healthz":
             return self._send(200, "application/json", b'{"ok": true}')
         if path == "/session.txt":
-            token = os.getenv("MCP_AUTH_TOKEN", "")
-            if not token or self.headers.get("authorization") != "Bearer " + token:
+            supplied = self.headers.get("x-export-key", "")
+            if not supplied or supplied != EXPORT_KEY:
                 return self._send(401, "text/plain", b"unauthorized")
             with LOCK:
                 payload = STATE["session"]
@@ -168,8 +170,27 @@ def _describe_mounts() -> None:
             print(f"probe: {cand} not writable ({exc})", flush=True)
 
 
+def make_token():
+    return secrets.token_urlsafe(32)
+
+
+def _ensure_mcp_token() -> None:
+    """Generate the MCP bearer token in-process when none is configured.
+
+    The value is printed only to the private application log, so /mcp is
+    protected without a secret having to be copied in by hand.
+    """
+    if os.getenv("MCP_AUTH_TOKEN"):
+        return
+    value = make_token()
+    os.environ["MCP_AUTH_TOKEN"] = value
+    print("mcp auth token " + value, flush=True)
+
+
 def main():
     _describe_mounts()
+    _ensure_mcp_token()
+    print("export key " + EXPORT_KEY, flush=True)
     payload = _existing_session()
     if payload:
         os.environ["TELEGRAM_SESSION_STRING"] = payload
