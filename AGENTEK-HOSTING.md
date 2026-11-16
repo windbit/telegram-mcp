@@ -59,3 +59,25 @@ Scan path: Telegram → Settings → Devices → Link Desktop Device.
 `/data` is the container filesystem: the session does not survive a rebuild, so
 after logging in copy the session into a space secret and pass it as
 `TELEGRAM_SESSION_STRING` to make it durable.
+
+## Why scans did not authorize (fixed 2026-11-16)
+
+The first version bounded the rotation loop with `MAX_REFRESHES = 200` and
+`return`ed silently once exhausted. Measured evidence: `/status.json` reported
+`attempt: 200` — exactly the cap — while `/qr.png` kept returning the same
+bytes (identical sha256) and the page still said "waiting". Timeline: the
+container started 09:55Z, 200 tokens x ~30 s is ~100 min, so the loop had died
+around 11:35Z and the page served a long-expired token for ~3 hours. Every scan
+therefore imported a dead token, which Telegram correctly refuses.
+
+Three fixes:
+
+- the rotation loop is unbounded (`while True`);
+- `STATUS` carries `qr_age` (seconds since the current code was published), so a
+  frozen code is visible instead of being indistinguishable from a live one;
+- the second-factor step gets its own `password_required` status instead of
+  being swallowed, and the login thread is restarted if it ever dies.
+
+The application log is the reference for diagnosing this class of bug: it prints
+one line per published code and the QR url, so a stalled loop is visible there
+even when the HTTP status looks healthy.
