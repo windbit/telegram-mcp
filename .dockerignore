@@ -1,0 +1,7 @@
+.git
+.github
+tests
+screenshots
+skills
+*.md
+docker-compose.yml
