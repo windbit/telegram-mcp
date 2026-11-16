@@ -13,7 +13,7 @@ APP_HASH_VARS = ("BOT_" + "TELEGRAM" + "_API" + "_HASH", "TELEGRAM" + "_API" + "
 MAX_REFRESHES = 200
 
 STATE = {"status": "starting", "attempt": 0, "qr": b"", "error": "",
-         "account": "", "session": ""}
+         "account": ""}
 LOCK = threading.Lock()
 AUTHORIZED = threading.Event()
 
@@ -125,15 +125,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, "image/png", blob)
         if path == "/healthz":
             return self._send(200, "application/json", b'{"ok": true}')
-        if path == "/session.txt":
-            token = os.getenv("MCP_AUTH_TOKEN", "")
-            if not token or self.headers.get("authorization") != "Bearer " + token:
-                return self._send(401, "text/plain", b"unauthorized")
-            with LOCK:
-                payload = STATE["session"]
-            if not payload:
-                return self._send(404, "text/plain", b"no session")
-            return self._send(200, "text/plain; charset=utf-8", payload.encode())
         return self._send(404, "text/plain", b"not found")
 
 
@@ -153,7 +144,23 @@ def _start_mcp():
     runner_http.main()
 
 
+
+
+def _describe_mounts() -> None:
+    """Log which candidate directories are writable (runtime mount probe)."""
+    import pathlib
+    for cand in ("/workspace", "/data", "/app"):
+        try:
+            pathlib.Path(cand).mkdir(parents=True, exist_ok=True)
+            marker = pathlib.Path(cand) / ".container-probe"
+            marker.write_text("probe")
+            print(f"probe: {cand} WRITABLE", flush=True)
+        except Exception as exc:
+            print(f"probe: {cand} not writable ({exc})", flush=True)
+
+
 def main():
+    _describe_mounts()
     payload = _existing_session()
     if payload:
         os.environ["TELEGRAM_SESSION_STRING"] = payload
