@@ -385,11 +385,60 @@ async def test_transcribe_via_telegram_requires_premium(monkeypatch):
 async def test_transcribe_via_telegram_rpc_error_maps_to_premium_required(monkeypatch):
     monkeypatch.setattr(transcription, "account_is_premium", _async_return(True))
     monkeypatch.setattr(transcription, "is_premium_rpc_error", lambda e: True)
-    client = _FakeTelegramClient([RuntimeError("PREMIUM_ACCOUNT_REQUIRED")])
+    client = _FakeTelegramClient(
+        [transcription.errors.RPCError(None, "PREMIUM_ACCOUNT_REQUIRED", 403)]
+    )
 
     result = await transcription._transcribe_via_telegram(client, object(), SimpleNamespace(id=1))
 
     assert result == {"status": "premium_required"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pending_first", [False, True])
+async def test_native_transcription_recovers_transport_failure(monkeypatch, pending_first):
+    monkeypatch.setattr(transcription, "account_is_premium", _async_return(True))
+    monkeypatch.setattr(transcription.asyncio, "sleep", _async_return(None))
+    responses = [SimpleNamespace(pending=True, text=None)] if pending_first else []
+    responses += [
+        ConnectionError("private detail"),
+        SimpleNamespace(pending=False, text="recovered"),
+    ]
+    result = await transcription._transcribe_via_telegram(
+        _FakeTelegramClient(responses), object(), SimpleNamespace(id=42)
+    )
+    assert result == {"status": "ok", "text": "recovered"}
+
+
+@pytest.mark.asyncio
+async def test_native_transcription_exhausted_retry_preserves_safe_failure(monkeypatch):
+    monkeypatch.setattr(transcription, "account_is_premium", _async_return(True))
+    monkeypatch.setattr(transcription.asyncio, "sleep", _async_return(None))
+    result = await transcription._transcribe_via_telegram(
+        _FakeTelegramClient([ConnectionError("secret")] * 3), object(), SimpleNamespace(id=42)
+    )
+    assert result == {
+        "status": "unavailable",
+        "reason": "telegram_temporarily_unavailable",
+        "retryable": True,
+        "error_type": "ConnectionError",
+    }
+
+
+@pytest.mark.asyncio
+async def test_native_transcription_flood_wait_returns_delay_without_retry(monkeypatch):
+    monkeypatch.setattr(transcription, "account_is_premium", _async_return(True))
+    result = await transcription._transcribe_via_telegram(
+        _FakeTelegramClient([transcription.errors.FloodWaitError(None, capture=120)]),
+        object(),
+        SimpleNamespace(id=42),
+    )
+    assert result == {
+        "status": "unavailable",
+        "reason": "rate_limited",
+        "retryable": True,
+        "retry_after_seconds": 120,
+    }
 
 
 # ---------------------------------------------------------------------------

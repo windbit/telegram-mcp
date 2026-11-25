@@ -401,6 +401,32 @@ async def test_transcribe_voice_pending_degrades_gracefully_without_caching(
 
 
 @pytest.mark.asyncio
+async def test_native_rpc_failure_reaches_tool_without_generic_error(
+    monkeypatch, transcript_cache_dir
+):
+    class FailingNativeClient(_FakeClient):
+        async def get_me(self):
+            return SimpleNamespace(premium=True)
+
+        async def get_input_entity(self, entity):
+            return "peer"
+
+        async def __call__(self, request):
+            raise transcription.errors.RPCError(None, "TRANSCRIPTION_FAILED", 400)
+
+    monkeypatch.setenv("TELEGRAM_TRANSCRIBE", "on-demand")
+    monkeypatch.setattr(transcription, "account_is_premium", _async_return(True))
+    client = FailingNativeClient(messages_by_id={5: _voice_msg(id=5)})
+    _patch_client(monkeypatch, client, SimpleNamespace(), 1)
+    payload = json.loads(
+        await messages.transcribe_voice(chat_id=1, message_id=5, engine="telegram")
+    )
+    assert payload["reason"] == "telegram_rpc_error"
+    assert payload["retryable"] is False
+    assert transcription.get_cached_transcript(1, 5) is None
+
+
+@pytest.mark.asyncio
 async def test_transcribe_voice_premium_required_degrades_gracefully(
     monkeypatch, transcript_cache_dir
 ):

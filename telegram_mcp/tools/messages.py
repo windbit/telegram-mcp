@@ -1264,6 +1264,16 @@ async def transcribe_voice(
                 },
                 ensure_ascii=False,
             )
+        if result["status"] == "unavailable":
+            return json.dumps(
+                {
+                    "transcribed": False,
+                    "source": chosen_engine,
+                    "duration": duration,
+                    **{key: value for key, value in result.items() if key != "status"},
+                },
+                ensure_ascii=False,
+            )
         if result["status"] == "error":
             return log_and_format_error(
                 "transcribe_voice",
