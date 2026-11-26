@@ -154,7 +154,9 @@ def _build_app(outbox: ThreadOutbox | None = None):
 async def _main_http() -> None:
     try:
         labels = ", ".join(_runtime.clients.keys())
-        print(f"Starting {len(_runtime.clients)} Telegram client(s) ({labels})...", file=sys.stderr)
+        print(
+            f"Starting {len(_runtime.clients)} Telegram client(s) ({labels})...", file=sys.stderr
+        )
         outbox = configure_thread_outbox(_runtime.clients, _runtime.is_chat_allowed)
         await asyncio.gather(
             *(

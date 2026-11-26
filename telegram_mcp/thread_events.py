@@ -28,7 +28,9 @@ class ThreadSubscription:
         reply = event.message.reply_to
         thread = (reply.reply_to_top_id or reply.reply_to_msg_id) if reply else None
         return (event.chat_id, thread, event.sender_id) == (
-            self.chat_id, self.thread_id, self.sender_id
+            self.chat_id,
+            self.thread_id,
+            self.sender_id,
         )
 
 
@@ -97,5 +99,7 @@ def configure_thread_outbox(clients, is_chat_allowed) -> ThreadOutbox | None:
         raise ValueError("Thread events target is outside the chat allowlist")
     client = clients[account]
     outbox = ThreadOutbox(Path(os.environ["TELEGRAM_THREAD_EVENTS_DB"]), subscription)
-    client.add_event_handler(outbox.record, events.NewMessage(incoming=True, chats=[subscription.chat_id]))
+    client.add_event_handler(
+        outbox.record, events.NewMessage(incoming=True, chats=[subscription.chat_id])
+    )
     return outbox
