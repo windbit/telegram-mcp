@@ -23,6 +23,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from telegram_mcp import runtime as _runtime
 from telegram_mcp.install_guard import UnsafeInstallationError, assert_safe_distribution
+from telegram_mcp.thread_events import ThreadOutbox, configure_thread_outbox
 
 try:
     assert_safe_distribution()
@@ -104,7 +105,19 @@ async def _serve_file(request):
     return FileResponse(candidate)
 
 
-def _build_app():
+def thread_event_reader(outbox: ThreadOutbox):
+    async def read_events(request: Request):
+        raw_cursor = request.query_params.get("after", "0")
+        if not raw_cursor.isascii() or not raw_cursor.isdecimal() or len(raw_cursor) > 18:
+            return JSONResponse({"error": "invalid cursor"}, status_code=400)
+        return JSONResponse(await outbox.wait_after(int(raw_cursor)))
+
+    return read_events
+
+
+def _build_app(outbox: ThreadOutbox | None = None):
+    if outbox is not None and not os.getenv("MCP_AUTH_TOKEN"):
+        raise ValueError("Thread events require bearer authentication")
     app = _runtime.mcp.streamable_http_app()
 
     async def healthz(request):  # noqa: ARG001
@@ -121,6 +134,8 @@ def _build_app():
     async def root(request):  # noqa: ARG001
         return PlainTextResponse("telegram-mcp streamable-http endpoint: /mcp\n")
 
+    if outbox is not None:
+        app.routes.append(Route("/thread-events", thread_event_reader(outbox), methods=["GET"]))
     app.routes.append(Route("/healthz", healthz, methods=["GET"]))
     app.routes.append(Route("/", root, methods=["GET"]))
     app.routes.append(Route("/files/{file_path:path}", _serve_file, methods=["GET"]))
@@ -140,6 +155,7 @@ async def _main_http() -> None:
     try:
         labels = ", ".join(_runtime.clients.keys())
         print(f"Starting {len(_runtime.clients)} Telegram client(s) ({labels})...", file=sys.stderr)
+        outbox = configure_thread_outbox(_runtime.clients, _runtime.is_chat_allowed)
         await asyncio.gather(
             *(
                 _connect_authorized_client(label, client)
@@ -151,7 +167,7 @@ async def _main_http() -> None:
         await asyncio.gather(*(client.get_dialogs() for client in _runtime.clients.values()))
 
         _configure_http_settings()
-        app = _build_app()
+        app = _build_app(outbox)
         settings = _runtime.mcp.settings
         print(
             "Telegram client(s) started "

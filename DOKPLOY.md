@@ -25,6 +25,12 @@ MCP_ALLOWED_HOSTS=telegram-mcp.dokploy.windbit.dev,127.0.0.1,localhost
 
 `TELEGRAM_EXPOSED_TOOLS=all` exposes write-capable Telegram MCP tools such as sending, editing, deleting, pinning, and reacting to messages. Use `read-only` only for restricted rollouts where MCP clients must not mutate Telegram state.
 
+## Thread event subscription
+
+Set `TELEGRAM_THREAD_EVENTS_TARGET` to `account:chat_id:thread_id:sender_id` and `TELEGRAM_THREAD_EVENTS_DB` to a SQLite path on a persistent volume. The HTTP runner requires `MCP_AUTH_TOKEN` and checks the configured chat against its allowlist. Without a target this feature is off.
+
+Authorized consumers call `GET /thread-events?after=0` with the MCP Bearer header. The request waits up to 25 seconds and returns at most 100 events with a cursor. Save the cursor after handling the page. The database stores message IDs, not text, and deduplicates deliveries for the same subscription. Keep the database across restarts. The runner does not recover Telegram messages it missed while offline; this endpoint replays only events it already stored.
+
 ## Hermes remote MCP config
 
 ```yaml
