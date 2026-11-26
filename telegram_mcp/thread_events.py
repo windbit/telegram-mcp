@@ -11,6 +11,7 @@ from telethon import events
 
 READ_LIMIT = 100
 WAIT_SECONDS = 25
+BACKFILL_LIMIT = 1000
 
 
 @dataclass(frozen=True)
@@ -24,10 +25,10 @@ class ThreadSubscription:
     def key(self) -> str:
         return f"{self.account}:{self.chat_id}:{self.thread_id}:{self.sender_id}"
 
-    def matches(self, event) -> bool:
-        reply = event.message.reply_to
+    def matches(self, message) -> bool:
+        reply = message.reply_to
         thread = (reply.reply_to_top_id or reply.reply_to_msg_id) if reply else None
-        return (event.chat_id, thread, event.sender_id) == (
+        return (message.chat_id, thread, message.sender_id) == (
             self.chat_id,
             self.thread_id,
             self.sender_id,
@@ -45,12 +46,30 @@ class ThreadOutbox:
                 UNIQUE(subscription, message_id))""")
 
     async def record(self, event) -> None:
-        if not self.subscription.matches(event):
+        if not self.subscription.matches(event.message):
             return
-        await asyncio.to_thread(self._persist_message, event.message.id)
+        await asyncio.to_thread(self._persist_messages, [event.message.id])
         previous = self.changed
         self.changed = asyncio.Event()
         previous.set()
+
+    async def recover(self, client) -> None:
+        target = self.subscription
+        replies = client.iter_messages(
+            target.chat_id,
+            reply_to=target.thread_id,
+            min_id=target.thread_id,
+            limit=BACKFILL_LIMIT + 1,
+        )
+        recovered = []
+        count = 0
+        async for message in replies:
+            count += 1
+            if count > BACKFILL_LIMIT:
+                raise ValueError("Thread history exceeds recovery limit")
+            if target.matches(message):
+                recovered.append(message.id)
+        await asyncio.to_thread(self._persist_messages, sorted(recovered))
 
     async def wait_after(self, cursor: int) -> dict:
         changed = self.changed
@@ -63,12 +82,12 @@ class ThreadOutbox:
             pass
         return await asyncio.to_thread(self.read_after, cursor)
 
-    def _persist_message(self, message_id: int) -> None:
+    def _persist_messages(self, message_ids: list[int]) -> None:
         with closing(sqlite3.connect(self.path)) as db, db:
-            db.execute(
+            db.executemany(
                 "INSERT INTO thread_events (subscription, message_id) VALUES (?, ?) "
                 "ON CONFLICT(subscription, message_id) DO NOTHING",
-                (self.subscription.key, message_id),
+                ((self.subscription.key, message_id) for message_id in message_ids),
             )
 
     def read_after(self, cursor: int) -> dict:

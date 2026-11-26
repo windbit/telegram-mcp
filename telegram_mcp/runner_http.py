@@ -168,6 +168,9 @@ async def _main_http() -> None:
         print("Warming entity caches...", file=sys.stderr)
         await asyncio.gather(*(client.get_dialogs() for client in _runtime.clients.values()))
 
+        if outbox is not None:
+            await outbox.recover(_runtime.clients[outbox.subscription.account])
+
         _configure_http_settings()
         app = _build_app(outbox)
         settings = _runtime.mcp.settings
