@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
+from telethon import errors
 from telethon.tl import functions
 
 from telegram_mcp.runtime import account_is_premium, get_marked_id, is_premium_rpc_error
@@ -426,6 +427,8 @@ def format_duration(seconds: Optional[int]) -> str:
 
 _POLL_ATTEMPTS = 10
 _POLL_INTERVAL_SECONDS = 2.0
+_TELEGRAM_REQUEST_ATTEMPTS = 3
+_TELEGRAM_REQUEST_TIMEOUT_SECONDS = 15.0
 
 
 async def _transcribe_via_telegram(cl, entity, msg) -> dict:
@@ -435,25 +438,49 @@ async def _transcribe_via_telegram(cl, entity, msg) -> dict:
     if not await account_is_premium(cl):
         return {"status": "premium_required"}
     peer = await cl.get_input_entity(entity)
-    try:
-        result = await cl(functions.messages.TranscribeAudioRequest(peer=peer, msg_id=msg.id))
-    except Exception as e:
-        if is_premium_rpc_error(e):
-            return {"status": "premium_required"}
-        return {"status": "error", "error": str(e)}
+    request = functions.messages.TranscribeAudioRequest(peer=peer, msg_id=msg.id)
+    for poll in range(_POLL_ATTEMPTS + 1):
+        if poll:
+            await asyncio.sleep(_POLL_INTERVAL_SECONDS)
+        result = await _request_telegram_transcription(cl, request)
+        if isinstance(result, dict):
+            return result
+        if not getattr(result, "pending", False):
+            if not result.text or not result.text.strip():
+                return {"status": "unavailable", "reason": "empty_transcript", "retryable": False}
+            return {"status": "ok", "text": result.text}
+    return {"status": "pending"}
 
-    attempts = 0
-    while getattr(result, "pending", False) and attempts < _POLL_ATTEMPTS:
-        await asyncio.sleep(_POLL_INTERVAL_SECONDS)
-        attempts += 1
+
+async def _request_telegram_transcription(cl, request):
+    for attempt in range(_TELEGRAM_REQUEST_ATTEMPTS):
         try:
-            result = await cl(functions.messages.TranscribeAudioRequest(peer=peer, msg_id=msg.id))
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
-
-    if getattr(result, "pending", False):
-        return {"status": "pending"}
-    return {"status": "ok", "text": result.text}
+            return await asyncio.wait_for(cl(request), timeout=_TELEGRAM_REQUEST_TIMEOUT_SECONDS)
+        except errors.FloodWaitError as error:
+            return {
+                "status": "unavailable",
+                "reason": "rate_limited",
+                "retryable": True,
+                "retry_after_seconds": error.seconds,
+            }
+        except (errors.ServerError, ConnectionError, OSError, asyncio.TimeoutError) as error:
+            if attempt + 1 == _TELEGRAM_REQUEST_ATTEMPTS:
+                return {
+                    "status": "unavailable",
+                    "reason": "telegram_temporarily_unavailable",
+                    "retryable": True,
+                    "error_type": type(error).__name__,
+                }
+            await asyncio.sleep(_POLL_INTERVAL_SECONDS * (attempt + 1))
+        except errors.RPCError as error:
+            if is_premium_rpc_error(error):
+                return {"status": "premium_required"}
+            return {
+                "status": "unavailable",
+                "reason": "telegram_rpc_error",
+                "retryable": False,
+                "error_type": type(error).__name__,
+            }
 
 
 async def _download_audio(cl, msg, limit: Optional[int], cfg=None):
