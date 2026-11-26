@@ -34,6 +34,7 @@ def _known_media_size(message) -> Optional[int]:
 class _DownloadLimitExceeded(Exception):
     """Stop an in-progress media download once it exceeds the configured limit."""
 
+
 # Расширения, которые Telegram умеет проигрывать в ленте, а не отдавать файлом.
 _STREAMABLE_SUFFIXES = {".mp4", ".mov", ".m4v"}
 
